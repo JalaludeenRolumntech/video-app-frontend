@@ -1,6 +1,6 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import { Button, TextField, IconButton, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import { Button, TextField, IconButton } from "@mui/material";
 import VideoCallIcon from "@mui/icons-material/VideoCall";
 import MicOffIcon from "@mui/icons-material/MicOff";
 import MicIcon from "@mui/icons-material/Mic";
@@ -10,8 +10,7 @@ import ScreenShareIcon from "@mui/icons-material/ScreenShare";
 import StopScreenShareIcon from "@mui/icons-material/StopScreenShare";
 import ChatIcon from "@mui/icons-material/Chat";
 
-const socket = io("https://localhost:5000/");
-
+const socket = io("https://video-app-backend-python.vercel.app/");
 
 const VideoApp = () => {
   const localVideoRef = useRef(null);
@@ -26,49 +25,49 @@ const VideoApp = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [showUserForm, setShowUserForm] = useState(false);
 
   const configuration = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
-  const createRoom = () => {
-    setShowUserForm(true); // Show the form to collect user details
-  };
-
-  const handleUserFormSubmit = async () => {
-    if (!name.trim() || !email.trim()) {
-      alert("Please enter your name and email.");
-      return;
-    }
-    
-    setShowUserForm(false);
+  const createRoom = async () => {
     const newRoomId = `room_${Math.floor(Math.random() * 10000)}`;
     setRoomId(newRoomId);
     setStep("meeting");
-
+  
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localVideoRef.current.srcObject = stream;
       localStreamRef.current = stream;
       setIsCameraOn(true);
-
-      socket.emit("create-room", { room: newRoomId, user_id: userId, name });
+  
+      const roomLink = `${window.location.origin}?room=${newRoomId}`;
+      alert(`Room created! Share this link with others to join: ${roomLink}`);
+      navigator.clipboard.writeText(roomLink);
+  
+      socket.emit("create-room", { room: newRoomId, user_id: userId });
       setupSocketListeners();
     } catch (error) {
       console.error("Error accessing media devices:", error);
       alert("Could not access camera/microphone.");
     }
   };
+  
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const room = params.get("room");
+    if (room) {
+      setRoomId(room);
+      alert(`You've been invited to join Room: ${room}. Click "Join Room" to proceed.`);
+    }
+  }, []);
+
+  socket.on("room-error", (data) => {
+    alert(data.error);
+  });
+  
 
   const joinRoom = async () => {
     if (!roomId.trim()) {
       alert("Please enter a valid Room ID.");
-      return;
-    }
-
-    if (!name.trim() || !email.trim()) {
-      alert("Please enter your name and email before joining.");
       return;
     }
 
@@ -79,7 +78,7 @@ const VideoApp = () => {
       localStreamRef.current = stream;
       setIsCameraOn(true);
 
-      socket.emit("join-room", { room: roomId, user_id: userId, name });
+      socket.emit("join-room", { room: roomId, user_id: userId });
       setupSocketListeners();
     } catch (error) {
       console.error("Error accessing media devices:", error);
@@ -98,9 +97,9 @@ const VideoApp = () => {
     });
   };
 
-  const handleUserJoined = ({ user_id, name }) => {
+  const handleUserJoined = ({ user_id }) => {
     if (user_id !== userId && !peers[user_id]) {
-      setPeers((prev) => ({ ...prev, [user_id]: { name } })); // Store the user's name
+      setPeers((prev) => ({ ...prev, [user_id]: {} }));
       createPeerConnection(user_id, true);
     }
   };
@@ -281,31 +280,6 @@ const VideoApp = () => {
             </Button>
           </div>
         </header>
-        <Dialog open={showUserForm} onClose={() => setShowUserForm(false)}>
-          <DialogTitle>Enter Your Details</DialogTitle>
-          <DialogContent>
-            <TextField
-              label="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              fullWidth
-              margin="normal"
-            />
-            <TextField
-              label="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              fullWidth
-              margin="normal"
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setShowUserForm(false)}>Cancel</Button>
-            <Button onClick={handleUserFormSubmit} variant="contained" color="primary">
-              Submit
-            </Button>
-          </DialogActions>
-        </Dialog>
       </div>
     );
   }
@@ -332,7 +306,7 @@ const VideoApp = () => {
       >
         <div className={Object.keys(peers).length === 0 ? "w-1/2" : "w-full"}>
           <video ref={localVideoRef} autoPlay muted className="rounded-md shadow-md w-full" />
-          <p className="text-center mt-2 text-sm font-semibold text-white">{name || "You"}</p>
+          <p className="text-center mt-2 text-sm font-semibold text-white">You</p>
         </div>
         {Object.keys(peers).map((peerId) => (
           <div key={peerId} className="rounded-md shadow-md">
