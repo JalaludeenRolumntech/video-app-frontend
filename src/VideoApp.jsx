@@ -1,16 +1,17 @@
 import React, { useRef, useState } from "react";
 import { io } from "socket.io-client";
-import { Button, TextField, IconButton } from "@mui/material";
+import { Button, TextField, IconButton, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import VideoCallIcon from "@mui/icons-material/VideoCall";
 import MicOffIcon from "@mui/icons-material/MicOff";
 import MicIcon from "@mui/icons-material/Mic";
 import VideocamIcon from "@mui/icons-material/Videocam";
-import VideocamOffIcon from "@mui/icons-material/VideocamOff"; // Alternate icon
+import VideocamOffIcon from "@mui/icons-material/VideocamOff";
 import ScreenShareIcon from "@mui/icons-material/ScreenShare";
 import StopScreenShareIcon from "@mui/icons-material/StopScreenShare";
 import ChatIcon from "@mui/icons-material/Chat";
 
-const socket = io("https://video-app-backend-python.vercel.app/");
+const socket = io("https://localhost:5000/");
+
 
 const VideoApp = () => {
   const localVideoRef = useRef(null);
@@ -25,10 +26,23 @@ const VideoApp = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [showUserForm, setShowUserForm] = useState(false);
 
   const configuration = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
-  const createRoom = async () => {
+  const createRoom = () => {
+    setShowUserForm(true); // Show the form to collect user details
+  };
+
+  const handleUserFormSubmit = async () => {
+    if (!name.trim() || !email.trim()) {
+      alert("Please enter your name and email.");
+      return;
+    }
+    
+    setShowUserForm(false);
     const newRoomId = `room_${Math.floor(Math.random() * 10000)}`;
     setRoomId(newRoomId);
     setStep("meeting");
@@ -39,7 +53,7 @@ const VideoApp = () => {
       localStreamRef.current = stream;
       setIsCameraOn(true);
 
-      socket.emit("create-room", { room: newRoomId, user_id: userId });
+      socket.emit("create-room", { room: newRoomId, user_id: userId, name });
       setupSocketListeners();
     } catch (error) {
       console.error("Error accessing media devices:", error);
@@ -49,18 +63,23 @@ const VideoApp = () => {
 
   const joinRoom = async () => {
     if (!roomId.trim()) {
-      alert("Please enter a Room ID.");
+      alert("Please enter a valid Room ID.");
       return;
     }
-    setStep("meeting");
+
+    if (!name.trim() || !email.trim()) {
+      alert("Please enter your name and email before joining.");
+      return;
+    }
 
     try {
+      setStep("meeting");
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localVideoRef.current.srcObject = stream;
       localStreamRef.current = stream;
       setIsCameraOn(true);
 
-      socket.emit("join-room", { room: roomId, user_id: userId });
+      socket.emit("join-room", { room: roomId, user_id: userId, name });
       setupSocketListeners();
     } catch (error) {
       console.error("Error accessing media devices:", error);
@@ -79,22 +98,10 @@ const VideoApp = () => {
     });
   };
 
-  const handleUserJoined = ({ user_id }) => {
+  const handleUserJoined = ({ user_id, name }) => {
     if (user_id !== userId && !peers[user_id]) {
+      setPeers((prev) => ({ ...prev, [user_id]: { name } })); // Store the user's name
       createPeerConnection(user_id, true);
-    }
-  };
-
- 
-  const toggleChat = () => {
-    setIsChatOpen((prev) => !prev);
-  };
-
-  const sendMessage = () => {
-    if (newMessage.trim()) {
-      socket.emit("chat-message", { roomId, userId, message: newMessage });
-      setMessages((prev) => [...prev, { userId, message: newMessage }]);
-      setNewMessage("");
     }
   };
 
@@ -138,14 +145,18 @@ const VideoApp = () => {
 
     peerConnection.ontrack = (event) => {
       const remoteVideo = document.createElement("video");
+      const remoteContainer = document.getElementById("remote-videos");
+
       remoteVideo.srcObject = event.streams[0];
       remoteVideo.autoplay = true;
       remoteVideo.playsInline = true;
-      remoteVideo.className = "remote-video rounded-lg shadow-md";
       remoteVideo.id = `video-${targetUserId}`;
-      const remoteContainer = document.getElementById("remote-videos");
+
+      const remoteWrapper = document.createElement("div");
+      remoteWrapper.appendChild(remoteVideo);
+
       if (remoteContainer) {
-        remoteContainer.appendChild(remoteVideo);
+        remoteContainer.appendChild(remoteWrapper);
       }
     };
 
@@ -222,79 +233,106 @@ const VideoApp = () => {
     }
   };
 
+  const toggleChat = () => {
+    setIsChatOpen((prev) => !prev);
+  };
+
+  const sendMessage = () => {
+    if (newMessage.trim()) {
+      socket.emit("chat-message", { roomId, userId, message: newMessage });
+      setMessages((prev) => [...prev, { userId, message: newMessage }]);
+      setNewMessage("");
+    }
+  };
+
   if (step === "welcome") {
     return (
       <div className="h-screen bg-gradient-to-r from-blue-500 to-indigo-600 text-white flex flex-col justify-center items-center">
-  {/* Header Section */}
-  <header className="text-center space-y-8">
-    <h1 className="text-5xl font-extrabold tracking-wide drop-shadow-md">
-      Welcome to Video Conferencing
-    </h1>
-    <Button
-      onClick={createRoom}
-      variant="contained"
-      startIcon={<VideoCallIcon />}
-      className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transform transition duration-300 hover:scale-105"
-    >
-      Create Meeting
-    </Button>
-
-    {/* Room ID Input and Join Button */}
-    <div className="mt-6 flex flex-col items-center space-y-4">
-      <TextField
-        variant="outlined"
-        size="small"
-        placeholder="Enter Room ID"
-        value={roomId}
-        onChange={(e) => setRoomId(e.target.value)}
-        className="w-64 bg-white rounded-md shadow-md focus:ring-2 focus:ring-indigo-500"
-        InputProps={{
-          style: { padding: '10px', fontSize: '16px' },
-        }}
-      />
-      <Button
-        onClick={joinRoom}
-        variant="contained"
-        className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-3 rounded-lg shadow-lg transform transition duration-300 hover:scale-105"
-      >
-        Join Room
-      </Button>
-    </div>
-  </header>
-</div>
-
+        <header className="text-center space-y-8">
+          <h1 className="text-5xl font-extrabold tracking-wide drop-shadow-md">
+            Welcome to Video Conferencing
+          </h1>
+          <Button
+            onClick={createRoom}
+            variant="contained"
+            startIcon={<VideoCallIcon />}
+            className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg transform transition duration-300 hover:scale-105"
+          >
+            Create Meeting
+          </Button>
+          <div className="mt-6 flex flex-col items-center space-y-4">
+            <TextField
+              variant="outlined"
+              size="small"
+              placeholder="Enter Room ID"
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              className="w-64 bg-white rounded-md shadow-md focus:ring-2 focus:ring-indigo-500"
+              InputProps={{
+                style: { padding: "10px", fontSize: "16px" },
+              }}
+            />
+            <Button
+              onClick={joinRoom}
+              variant="contained"
+              className="bg-yellow-500 hover:bg-yellow-600 text-white px-6 py-3 rounded-lg shadow-lg transform transition duration-300 hover:scale-105"
+            >
+              Join Room
+            </Button>
+          </div>
+        </header>
+        <Dialog open={showUserForm} onClose={() => setShowUserForm(false)}>
+          <DialogTitle>Enter Your Details</DialogTitle>
+          <DialogContent>
+            <TextField
+              label="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              fullWidth
+              margin="normal"
+            />
+            <TextField
+              label="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              fullWidth
+              margin="normal"
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setShowUserForm(false)}>Cancel</Button>
+            <Button onClick={handleUserFormSubmit} variant="contained" color="primary">
+              Submit
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </div>
     );
   }
 
   return (
-
-    
     <div className="h-screen flex flex-col bg-gray-800 text-white">
-      {/* Header takes 10% of the height */}
       <header className="h-[10%] py-4 px-6 bg-gray-900 shadow-lg flex justify-between items-center">
-  <h1 className="text-2xl font-semibold">Room ID: {roomId}</h1>
-  <Button
-    onClick={() => {
-      // Logic to cancel or leave the meeting
-      setStep("welcome"); // Navigate back to the welcome screen
-      socket.emit("leave-room", { roomId, userId }); // Notify the backend
-    }}
-    variant="contained"
-    className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg shadow"
-  >
-    Cancel Meeting
-  </Button>
-</header>
-
-  
-      {/* Main content takes 70% of the height */}
+        <h1 className="text-2xl font-semibold">Room ID: {roomId}</h1>
+        <Button
+          onClick={() => {
+            setStep("welcome");
+            socket.emit("leave-room", { roomId, userId });
+          }}
+          variant="contained"
+          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg shadow"
+        >
+          Cancel Meeting
+        </Button>
+      </header>
       <div
         className={`flex-grow h-[70%] ${
           Object.keys(peers).length === 0 ? "flex justify-center items-center" : "grid grid-cols-3 gap-4"
         } p-4`}
       >
         <div className={Object.keys(peers).length === 0 ? "w-1/2" : "w-full"}>
-          <video ref={localVideoRef} autoPlay muted className="rounded-md shadow-md w-full h-full" />
+          <video ref={localVideoRef} autoPlay muted className="rounded-md shadow-md w-full" />
+          <p className="text-center mt-2 text-sm font-semibold text-white">{name || "You"}</p>
         </div>
         {Object.keys(peers).map((peerId) => (
           <div key={peerId} className="rounded-md shadow-md">
@@ -302,8 +340,6 @@ const VideoApp = () => {
           </div>
         ))}
       </div>
-  
-      {/* Footer takes 10% of the height */}
       <footer className="h-[10%] py-4 bg-gray-900 text-center flex justify-center items-center space-x-4">
         <IconButton
           onClick={toggleCamera}
@@ -339,77 +375,59 @@ const VideoApp = () => {
           )}
         </IconButton>
         <IconButton
-    onClick={toggleChat}
-    className="hover:text-yellow-400"
-    sx={{ color: "white" }}
-  >
-    <ChatIcon fontSize="large" sx={{ color: "white" }} />
-  </IconButton>
-      </footer>
-
-    {/* Sidebar for Chat */}
-    {isChatOpen && (
-  <div
-    className="absolute top-0 right-0 h-full bg-white shadow-lg transition-transform duration-300 w-80 z-10 border-l border-gray-300"
-  >
-    <div className="p-4 flex flex-col h-full">
-      {/* Header */}
-      <h2 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">
-        Chat
-      </h2>
-
-      {/* Messages Section */}
-      <div className="flex-grow overflow-y-auto space-y-2">
-        {messages.map((msg, idx) => (
-          <div
-            key={idx}
-            className={`p-3 rounded-lg shadow-sm ${
-              msg.userId === userId
-                ? "bg-blue-100 text-blue-900 self-end"
-                : "bg-gray-100 text-gray-800"
-            }`}
-          >
-            <strong className="block text-sm font-semibold">
-              {msg.userId === userId ? "You" : msg.userId}
-            </strong>
-            <p className="text-sm">{msg.message}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Input Section */}
-      <div className="flex mt-4 items-center">
-        <TextField
-          variant="outlined"
-          size="small"
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Type a message..."
-          className="flex-grow"
-          InputProps={{
-            style: { color: "#4B5563", background: "#F9FAFB", fontSize: "14px" },
-          }}
-        />
-        <Button
-          onClick={sendMessage}
-          variant="contained"
-          className="ml-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg shadow"
+          onClick={toggleChat}
+          className="hover:text-yellow-400"
+          sx={{ color: "white" }}
         >
-          Send
-        </Button>
-      </div>
+          <ChatIcon fontSize="large" sx={{ color: "white" }} />
+        </IconButton>
+      </footer>
+      {isChatOpen && (
+        <div className="absolute top-0 right-0 h-full bg-white shadow-lg transition-transform duration-300 w-80 z-10 border-l border-gray-300">
+          <div className="p-4 flex flex-col h-full">
+            <h2 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Chat</h2>
+            <div className="flex-grow overflow-y-auto space-y-2">
+              {messages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`p-3 rounded-lg shadow-sm ${
+                    msg.userId === userId
+                      ? "bg-blue-100 text-blue-900 self-end"
+                      : "bg-gray-100 text-gray-800"
+                  }`}
+                >
+                  <strong className="block text-sm font-semibold">
+                    {msg.userId === userId ? "You" : msg.userId}
+                  </strong>
+                  <p className="text-sm">{msg.message}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex mt-4 items-center">
+              <TextField
+                variant="outlined"
+                size="small"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type a message..."
+                className="flex-grow"
+                InputProps={{
+                  style: { color: "#4B5563", background: "#F9FAFB", fontSize: "14px" },
+                }}
+              />
+              <Button
+                onClick={sendMessage}
+                variant="contained"
+                className="ml-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg shadow"
+              >
+                Send
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-  </div>
-)}
-
-
-
-
-    </div>
-
-  
   );
-  
 };
 
 export default VideoApp;
