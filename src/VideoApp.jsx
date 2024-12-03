@@ -11,7 +11,7 @@ import StopScreenShareIcon from "@mui/icons-material/StopScreenShare";
 import './VideoApp.css';
 import ChatIcon from "@mui/icons-material/Chat";
 
-const socket = io("https://videoapp-backend-1.onrender.com");
+const socket = io("https://videoapp-backend-yob8.onrender.com");
 
 
 const VideoApp = () => {
