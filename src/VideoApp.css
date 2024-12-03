@@ -1,0 +1,9 @@
+.remote-video {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16/9; /* Ensures videos maintain their aspect ratio */
+    object-fit: cover;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px white;
+  }
+  
